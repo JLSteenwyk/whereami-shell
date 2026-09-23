@@ -59,11 +59,36 @@ config:  /home/jacob/.config/whereami/config
 
 $ whereami name           # just the name, handy in scripts
 $ whereami init NAME [COLOR]   # (re)write this machine's config
+$ whereami off            # hide the prompt segment in every shell on this machine
+$ whereami on             # show it again (whereami toggle flips it)
 $ whereami --help
 ```
 
+`on`/`off` work by creating or removing `~/.config/whereami/disabled`. The
+prompt checks for that file every time it is drawn, so all open shells react
+immediately and no restart is needed. The flag is per machine: turning the
+prompt off on your laptop does not hide the `SSH` marker on a server.
+
 `bin/whereami` also works without sourcing anything, so `ssh host whereami`
 answers from the remote side.
+
+## macOS menu bar app
+
+![menu bar item](docs/menubar.png)
+
+`WhereAmI.app` puts the machine's name in the menu bar in its configured color
+and lets you switch the prompt segment on or off with one click. It uses the
+same flag file as `whereami on`/`off`, so the menu bar and every terminal stay
+in sync in both directions.
+
+```sh
+make install-app   # builds with swiftc, copies to ~/Applications, launches
+```
+
+The menu offers **Show in prompt**, **Edit config…**, and **Start at login**.
+Requires macOS 13 or newer and the Xcode command line tools for the one-time
+build. `make app` builds without installing; `make run-app` launches the
+build.
 
 ## Configuration
 
@@ -85,15 +110,18 @@ Environment variables:
 | `WHEREAMI_NAME`, `WHEREAMI_COLOR` | Override the config file for this shell. |
 | `WHEREAMI_PROMPT=0` | Do not modify `PS1`. Put `$(whereami_ps1)` in your own prompt instead. |
 | `WHEREAMI_COLOR_ENABLED=0` | Plain text segment, no ANSI escapes. |
-| `WHEREAMI_CONFIG` | Use a different config file path. |
+| `WHEREAMI_CONFIG` | Use a different config file path. The `disabled` flag lives next to it. |
 
 Custom prompt example:
 
 ```sh
 export WHEREAMI_PROMPT=0
 source ~/.local/share/whereami-shell/whereami.sh
-PS1='$(whereami_ps1) \w \$ '
+PS1='$(whereami_ps1)\w \$ '
 ```
+
+The segment includes its own trailing space and prints nothing while the
+prompt is turned off.
 
 ## How SSH detection works
 
@@ -106,6 +134,7 @@ per shell and cached in `WHEREAMI_SESSION`.
 
 ```sh
 make test      # runs tests/run.sh, a dependency-free Bash test runner
+make app       # compiles the menu bar app into build/WhereAmI.app
 ```
 
 Design notes live in `docs/superpowers/specs/`.

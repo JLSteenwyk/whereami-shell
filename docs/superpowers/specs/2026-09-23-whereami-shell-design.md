@@ -31,6 +31,21 @@ each machine's own disk, this property holds through nested SSH hops and tmux.
 
 Out of scope for v1: zsh/fish support, per-directory names, remote config sync.
 
+## Addendum (2026-09-23): on/off toggle and macOS menu bar app
+
+- `~/.config/whereami/disabled` is a flag file. While it exists `whereami_ps1`
+  prints nothing. The check runs on every prompt (one `stat`), so all open
+  shells on the machine react at once. `whereami on|off|toggle` manage it.
+- `macos/WhereAmI.swift` is a single-file AppKit app built with `swiftc`
+  (`make app`, `make install-app`). It shows the name in the configured color
+  as an `NSStatusItem`, toggles the same flag file, watches the config
+  directory with a `DispatchSource` (plus a 3 s poll for in-place edits), and
+  registers itself as a login item through `SMAppService`.
+- The app reads the config with the same rules as the shell and uses
+  `gethostname` so the derived default color matches the shell's.
+- The flag is intentionally per machine so hiding the local prompt never hides
+  the SSH marker on a remote host.
+
 ## Architecture
 
 Single sourceable file `whereami.sh` with small functions, each testable on its
