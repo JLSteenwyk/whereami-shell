@@ -55,7 +55,8 @@ whereami_default_color() {
 whereami_load_config() {
   local file key value line
   local env_name="${WHEREAMI_NAME:-}" env_color="${WHEREAMI_COLOR:-}"
-  local file_name="" file_color=""
+  local env_tint="${WHEREAMI_TINT:-}" env_bg="${WHEREAMI_BACKGROUND:-}" env_label="${WHEREAMI_LABEL:-}"
+  local file_name="" file_color="" file_tint="" file_bg="" file_label=""
   file=$(whereami_config_path)
   if [ -r "$file" ]; then
     while IFS= read -r line || [ -n "$line" ]; do
@@ -66,14 +67,20 @@ whereami_load_config() {
       key=${key#"${key%%[![:space:]]*}"};   key=${key%"${key##*[![:space:]]}"}
       value=${value#"${value%%[![:space:]]*}"}; value=${value%"${value##*[![:space:]]}"}
       case "$key" in
-        name)  file_name=$value ;;
-        color) file_color=$value ;;
+        name)       file_name=$value ;;
+        color)      file_color=$value ;;
+        tint)       file_tint=$value ;;
+        background) file_bg=$value ;;
+        label)      file_label=$value ;;
       esac
     done < "$file"
   fi
   WHEREAMI_NAME=${env_name:-${file_name:-$(whereami_hostname)}}
   WHEREAMI_COLOR=${env_color:-${file_color:-$(whereami_default_color "$WHEREAMI_NAME")}}
-  export WHEREAMI_NAME WHEREAMI_COLOR
+  WHEREAMI_TINT=${env_tint:-${file_tint:-ssh}}          # ssh | always | off
+  WHEREAMI_BACKGROUND=${env_bg:-$file_bg}              # optional #rrggbb
+  WHEREAMI_LABEL=${env_label:-${file_label:-off}}      # on | off
+  export WHEREAMI_NAME WHEREAMI_COLOR WHEREAMI_TINT WHEREAMI_BACKGROUND WHEREAMI_LABEL
 }
 
 # --- session detection -------------------------------------------------------
@@ -131,12 +138,70 @@ whereami_color_code() {
 
 whereami_color_valid() { whereami_color_code "$1" >/dev/null 2>&1; }
 
-# The prompt segment: "LOCAL  name" or "SSH    name", colored, with \[ \]
-# guards so Bash does not count the escapes toward the line width.
+# A dark terminal background (#rrggbb) for a color name or 0-255 number.
+whereami_background_for() {
+  local c="$1" r g b i
+  case "$c" in
+    black|bright-black)     printf '#1a1a1a\n'; return ;;
+    red|bright-red)         printf '#3a0f0f\n'; return ;;
+    green|bright-green)     printf '#0f2e14\n'; return ;;
+    yellow|bright-yellow)   printf '#332b0a\n'; return ;;
+    blue|bright-blue)       printf '#0f1a3a\n'; return ;;
+    magenta|bright-magenta) printf '#3a0f2e\n'; return ;;
+    cyan|bright-cyan)       printf '#0a2e33\n'; return ;;
+    white|bright-white)     printf '#2e2e2e\n'; return ;;
+  esac
+  if ! whereami_color_valid "$c"; then
+    whereami_background_for "$(whereami_default_color "${WHEREAMI_NAME:-$(whereami_hostname)}")"
+    return
+  fi
+  # xterm-256 number -> rgb, darkened to 30%
+  if [ "$c" -lt 16 ]; then
+    set -- 0,0,0 205,0,0 0,205,0 205,205,0 0,0,238 205,0,205 0,205,205 229,229,229 \
+           127,127,127 255,0,0 0,255,0 255,255,0 92,92,255 255,0,255 0,255,255 255,255,255
+    shift "$c"; IFS=, read -r r g b <<EOF
+$1
+EOF
+  elif [ "$c" -lt 232 ]; then
+    i=$((c - 16)); set -- 0 95 135 175 215 255
+    r=$(eval "printf '%s' \${$((i / 36 + 1))}")
+    g=$(eval "printf '%s' \${$((i / 6 % 6 + 1))}")
+    b=$(eval "printf '%s' \${$((i % 6 + 1))}")
+  else
+    r=$((8 + (c - 232) * 10)); g=$r; b=$r
+  fi
+  printf '#%02x%02x%02x\n' $((r * 30 / 100)) $((g * 30 / 100)) $((b * 30 / 100))
+}
+
+# Escape sequence that tints (or resets) the terminal window background.
+# Emitted on every prompt so leaving an SSH session restores the local color.
+whereami_tint() {
+  local seq bg
+  case "${TERM:-}" in dumb|'') return 0 ;; esac
+  [ -n "${WHEREAMI_NAME:-}" ] || whereami_load_config
+  whereami_detect_session
+  case "${WHEREAMI_TINT:-ssh}" in off) return 0 ;; esac
+  if whereami_enabled && { [ "${WHEREAMI_TINT:-ssh}" = always ] || [ "${WHEREAMI_SESSION:-local}" = ssh ]; }; then
+    bg=${WHEREAMI_BACKGROUND:-$(whereami_background_for "${WHEREAMI_COLOR:-}")}
+    seq=$(printf '\033]11;%s\007' "$bg")
+  else
+    seq=$(printf '\033]111\007')
+  fi
+  if whereami_in_tmux; then
+    printf '\033Ptmux;\033%s\033\\' "$seq"
+  else
+    printf '%s' "$seq"
+  fi
+}
+
+# The prompt segment: "LOCAL  name" or "SSH    name", colored. Only shown when
+# label=on. Escapes are wrapped in \001/\002 (readline's ignore markers)
+# because \[ \] are not interpreted when they come out of a $(...) in PS1.
 whereami_ps1() {
   local marker color reset
   whereami_enabled || return 0
   [ -n "${WHEREAMI_NAME:-}" ] || whereami_load_config
+  [ "${WHEREAMI_LABEL:-off}" = on ] || return 0
   whereami_detect_session
   if [ "$WHEREAMI_SESSION" = ssh ]; then marker="SSH   "; else marker="LOCAL "; fi
   if [ "${WHEREAMI_COLOR_ENABLED:-1}" = 0 ]; then
@@ -148,21 +213,22 @@ whereami_ps1() {
   reset=$(printf '\033[0m')
   if [ "$WHEREAMI_SESSION" = ssh ]; then
     # bold + reverse for the SSH marker so remote shells stand out
-    printf '\[%s\033[1;7m\] %s\[%s\] \[%s\033[1m\]%s\[%s\] ' \
+    printf '\001%s\033[1;7m\002 %s\001%s\002 \001%s\033[1m\002%s\001%s\002 ' \
       "$color" "$marker" "$reset" "$color" "$WHEREAMI_NAME" "$reset"
   else
-    printf '\[%s\]%s \[%s\033[1m\]%s\[%s\] ' \
+    printf '\001%s\002%s \001%s\033[1m\002%s\001%s\002 ' \
       "$color" "$marker" "$color" "$WHEREAMI_NAME" "$reset"
   fi
 }
 
-# Prefix PS1 with the segment unless WHEREAMI_PROMPT=0. Safe to call twice.
+# Prefix PS1 with the tint sequence and the (optional) label unless
+# WHEREAMI_PROMPT=0. Safe to call twice.
 whereami_setup() {
   whereami_load_config
   whereami_detect_session
   [ "${WHEREAMI_PROMPT:-1}" = 0 ] && return 0
-  case "${PS1:-}" in *whereami_ps1*) return 0 ;; esac
-  PS1='$(whereami_ps1)'"${PS1:-\\w \\$ }"
+  case "${PS1:-}" in *whereami_tint*) return 0 ;; esac
+  PS1='\[$(whereami_tint)\]$(whereami_ps1)'"${PS1:-\\w \\$ }"
 }
 
 # --- command -----------------------------------------------------------------
@@ -174,8 +240,8 @@ Usage: whereami [COMMAND]
   (none)               Show the machine name, session type, host, tmux, color
   name                 Print only the machine name
   ps1                  Print the raw prompt segment (for custom PS1)
-  on | off | toggle    Show or hide the prompt segment in every shell on
-                       this machine (creates/removes ~/.config/whereami/disabled)
+  on | off | toggle    Enable or disable whereami in every shell on this
+                       machine (creates/removes ~/.config/whereami/disabled)
   init [--force] NAME [COLOR]
                        Write ~/.config/whereami/config for this machine
   deploy HOST [--name NAME] [--color COLOR]
@@ -185,8 +251,13 @@ Usage: whereami [COMMAND]
   --version            Show version
 
 Colors: black red green yellow blue magenta cyan white, bright-<color>, or 0-255.
-Environment: WHEREAMI_NAME, WHEREAMI_COLOR override the config file;
-             WHEREAMI_PROMPT=0 leaves PS1 alone; WHEREAMI_CONFIG sets the file.
+Config keys (~/.config/whereami/config):
+  name, color          Machine name and color
+  tint=ssh|always|off  Tint the terminal window background (default: ssh only)
+  background=#rrggbb   Explicit window color (default: dark shade of color)
+  label=on|off         Also show "SSH name" text in the prompt (default: off)
+Environment: WHEREAMI_NAME, _COLOR, _TINT, _BACKGROUND, _LABEL override the
+             file; WHEREAMI_PROMPT=0 leaves PS1 alone; WHEREAMI_CONFIG sets the file.
 USAGE
 }
 
@@ -279,7 +350,9 @@ whereami_status() {
   printf 'user:    %s\n' "${USER:-$(id -un 2>/dev/null)}"
   printf 'tmux:    %s\n' "$tmux"
   printf 'color:   %s\n' "$WHEREAMI_COLOR"
-  printf 'prompt:  %s\n' "$prompt"
+  printf 'enabled: %s\n' "$prompt"
+  printf 'tint:    %s%s\n' "$WHEREAMI_TINT" "${WHEREAMI_BACKGROUND:+ ($WHEREAMI_BACKGROUND)}"
+  printf 'label:   %s\n' "$WHEREAMI_LABEL"
   printf 'config:  %s\n' "$(whereami_config_path)"
 }
 

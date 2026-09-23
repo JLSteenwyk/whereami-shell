@@ -1,6 +1,7 @@
 . "$WHEREAMI_ROOT/whereami.sh"
 
-ESC=$(printf '\033')
+ESC=$(printf '\033'); SOH=$(printf '\001'); STX=$(printf '\002')
+export WHEREAMI_LABEL=on
 
 test_color_code_maps_named_colors() {
   assert_eq "${ESC}[31m" "$(whereami_color_code red)"
@@ -23,8 +24,9 @@ test_ps1_local_segment_has_marker_name_and_guards() {
   out=$(whereami_ps1)
   assert_contains "$out" "LOCAL"
   assert_contains "$out" "macbook"
-  assert_contains "$out" '\['
-  assert_contains "$out" '\]'
+  assert_contains "$out" "$SOH"
+  assert_contains "$out" "$STX"
+  case "$out" in *'\['*|*'\]'*) echo "literal \\[ in output" >&2; return 1;; esac
   assert_contains "$out" "${ESC}[32m"
   assert_contains "$out" "${ESC}[0m"
 }
@@ -53,8 +55,7 @@ test_setup_prefixes_PS1_by_default() {
   PS1='\w \$ '
   WHEREAMI_NAME=macbook
   whereami_setup
-  assert_contains "$PS1" '$(whereami_ps1)'
-  assert_contains "$PS1" '\w \$ '
+  assert_contains "$PS1" '$(whereami_ps1)\w \$ '
 }
 
 test_setup_does_not_touch_PS1_when_prompt_disabled() {

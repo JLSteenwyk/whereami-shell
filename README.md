@@ -2,16 +2,21 @@
 
 Know which computer you're using before you run a command.
 
-whereami-shell makes the active machine obvious in your terminal prompt,
-especially when you SSH between a laptop, workstation, and remote servers. Each
-machine can have a recognizable name and color, and remote sessions show an
-SSH indicator.
+whereami-shell makes the active machine obvious in your terminal, especially
+when you SSH between a laptop, workstation, and remote servers. Each machine has
+a recognizable name and color. When you are on a remote machine, the terminal
+window's background takes that machine's color; when you exit, it goes back to
+normal. Optionally the prompt can also carry a text label:
 
 ```
 LOCAL  macbook       ~/projects $
 SSH    threadripper  ~/analysis $
 SSH    dgx-spark-1   ~/models $
 ```
+
+The window tint works in macOS Terminal, iTerm2, and most modern terminals,
+because the shell emits the standard "set background color" escape sequence
+(OSC 11) on every prompt. It works through nested SSH and inside tmux.
 
 The displayed name and color describe the machine running the shell, not the
 computer where the terminal window was opened. Configuration lives on each
@@ -77,15 +82,15 @@ config:  /home/jacob/.config/whereami/config
 $ whereami name           # just the name, handy in scripts
 $ whereami init NAME [COLOR]   # (re)write this machine's config
 $ whereami deploy HOST    # install on a remote machine over SSH
-$ whereami off            # hide the prompt segment in every shell on this machine
-$ whereami on             # show it again (whereami toggle flips it)
+$ whereami off            # disable tint and label in every shell on this machine
+$ whereami on             # enable again (whereami toggle flips it)
 $ whereami --help
 ```
 
 `on`/`off` work by creating or removing `~/.config/whereami/disabled`. The
 prompt checks for that file every time it is drawn, so all open shells react
-immediately and no restart is needed. The flag is per machine: turning the
-prompt off on your laptop does not hide the `SSH` marker on a server.
+immediately and no restart is needed. The flag is per machine: turning it off
+on your laptop does not stop a server from tinting the window.
 
 `bin/whereami` also works without sourcing anything, so `ssh host whereami`
 answers from the remote side.
@@ -94,10 +99,10 @@ answers from the remote side.
 
 ![menu bar item](docs/menubar.png)
 
-`WhereAmI.app` adds a small computer icon to the menu bar, tinted with this
-machine's color (gray while the prompt is off). Clicking it shows the machine
-name, host, prompt state, and any SSH sessions currently open from this Mac,
-plus a **Show in prompt** toggle. It uses the same flag file as
+`WhereAmI.app` adds a small terminal icon to the menu bar, tinted with this
+machine's color (gray while whereami is off). Clicking it shows the machine
+name, host, state, and any SSH sessions currently open from this Mac, plus an
+**Enabled on this Mac** toggle. It uses the same flag file as
 `whereami on`/`off`, so the menu bar and every terminal stay in sync in both
 directions.
 
@@ -118,17 +123,23 @@ executed.
 ```
 name=threadripper
 color=magenta
+# optional:
+tint=ssh            # ssh (default): tint only when reached over SSH; always; off
+background=#3a0f2e  # explicit window color; default is a dark shade of `color`
+label=off           # on: also show "SSH threadripper" text in the prompt
 ```
 
 Colors: `black red green yellow blue magenta cyan white`, any `bright-<color>`,
-or a number from 0 to 255 (xterm-256).
+or a number from 0 to 255 (xterm-256). With `tint=ssh`, a local shell resets
+the window to your profile's normal background on every prompt, which is what
+restores it after you leave a remote session.
 
 Environment variables:
 
 | Variable | Effect |
 |---|---|
-| `WHEREAMI_NAME`, `WHEREAMI_COLOR` | Override the config file for this shell. |
-| `WHEREAMI_PROMPT=0` | Do not modify `PS1`. Put `$(whereami_ps1)` in your own prompt instead. |
+| `WHEREAMI_NAME`, `WHEREAMI_COLOR`, `WHEREAMI_TINT`, `WHEREAMI_BACKGROUND`, `WHEREAMI_LABEL` | Override the config file for this shell. |
+| `WHEREAMI_PROMPT=0` | Do not modify `PS1`. Put `\[$(whereami_tint)\]$(whereami_ps1)` in your own prompt instead. |
 | `WHEREAMI_COLOR_ENABLED=0` | Plain text segment, no ANSI escapes. |
 | `WHEREAMI_CONFIG` | Use a different config file path. The `disabled` flag lives next to it. |
 
@@ -137,11 +148,12 @@ Custom prompt example:
 ```sh
 export WHEREAMI_PROMPT=0
 source ~/.local/share/whereami-shell/whereami.sh
-PS1='$(whereami_ps1)\w \$ '
+PS1='\[$(whereami_tint)\]$(whereami_ps1)\w \$ '
 ```
 
-The segment includes its own trailing space and prints nothing while the
-prompt is turned off.
+`whereami_tint` emits the window color escape (zero width, hence the `\[ \]`).
+`whereami_ps1` prints the text label with its own trailing space, or nothing
+when `label=off` or whereami is turned off.
 
 ## How SSH detection works
 

@@ -1,4 +1,5 @@
 . "$WHEREAMI_ROOT/whereami.sh"
+export WHEREAMI_LABEL=on
 
 flag() { printf '%s/.config/whereami/disabled' "$HOME"; }
 
@@ -36,9 +37,9 @@ test_toggle_flips_state() {
 }
 
 test_status_reports_prompt_state() {
-  whereami | grep -q '^prompt: *on$'
+  whereami | grep -q '^enabled: *on$'
   whereami off >/dev/null
-  whereami | grep -q '^prompt: *off$'
+  whereami | grep -q '^enabled: *off$'
 }
 
 test_flag_is_checked_live_not_cached() {

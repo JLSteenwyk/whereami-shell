@@ -108,3 +108,17 @@ exit codes. `make test` runs them all.
 - `whereami deploy HOST` installs on a remote by piping a tar of the three
   files through `ssh` into a temp dir and running `install.sh` there. The
   installer also hooks `~/.bash_profile` when it does not source `.bashrc`.
+
+## Addendum (2026-09-23): window tint replaces the text label as the default
+
+- Verified on macOS Terminal that OSC 11 (`ESC ] 11 ; #rrggbb BEL`) sets the
+  window background and OSC 111 resets it; iTerm2 and most modern terminals
+  support the same. `whereami_tint` emits one of these on every prompt, wrapped
+  in tmux passthrough (`ESC P tmux; ...`) when `TMUX` is set.
+- Default `tint=ssh`: SSH sessions tint with a dark shade of the machine color,
+  local shells emit the reset, so exiting a remote restores the window.
+  `tint=always` colors local windows too; `background=#rrggbb` overrides.
+- The text label is now opt-in (`label=on`). Bug fix: the label used literal
+  `\[`/`\]` inside a `$(...)` substitution, which Bash does not interpret at
+  that stage; it now emits `\001`/`\002` directly.
+- `whereami_setup` sets `PS1='\[$(whereami_tint)\]$(whereami_ps1)'"$PS1"`.

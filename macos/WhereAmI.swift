@@ -1,9 +1,9 @@
 // WhereAmI menu bar app for whereami-shell.
 //
-// Shows this Mac's configured name and color in the menu bar and lets you
-// toggle the shell prompt segment on or off. The toggle simply creates or
-// removes ~/.config/whereami/disabled, which whereami.sh checks on every
-// prompt, so every open terminal reacts immediately.
+// Shows this Mac's configured color in the menu bar and lets you enable or
+// disable whereami (window tint and optional prompt label). The toggle simply
+// creates or removes ~/.config/whereami/disabled, which whereami.sh checks on
+// every prompt, so every open terminal reacts immediately.
 //
 // Build:  make app      (single-file swiftc build, no Xcode project)
 
@@ -169,7 +169,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let promptItem = NSMenuItem()
     private let sshHeaderItem = NSMenuItem()
     private var sshItems: [NSMenuItem] = []
-    private let toggleItem = NSMenuItem(title: "Show in prompt", action: #selector(togglePrompt), keyEquivalent: "")
+    private let toggleItem = NSMenuItem(title: "Enabled on this Mac", action: #selector(togglePrompt), keyEquivalent: "")
     private let loginItem = NSMenuItem(title: "Start at login", action: #selector(toggleLogin), keyEquivalent: "")
     private var watcher: DispatchSourceFileSystemObject?
     private var watchedFD: Int32 = -1
@@ -229,14 +229,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         configured.isTemplate = false
         statusItem.button?.image = configured
         statusItem.button?.imagePosition = .imageOnly
-        statusItem.button?.toolTip = "\(config.name) · prompt \(enabled ? "on" : "off")"
+        statusItem.button?.toolTip = "\(config.name) · whereami \(enabled ? "on" : "off")"
 
         // Menu contents
         nameItem.attributedTitle = NSAttributedString(string: config.name, attributes: [
             .foregroundColor: color, .font: NSFont.boldSystemFont(ofSize: 14),
         ])
         hostItem.title = "Host: \(Config.shortHostname())   Color: \(config.color)"
-        promptItem.title = "Prompt: \(enabled ? "on" : "off")"
+        promptItem.title = "Window tint: \(enabled ? "on" : "off")"
         toggleItem.state = enabled ? .on : .off
         loginItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
 
