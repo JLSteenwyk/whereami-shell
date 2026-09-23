@@ -4,7 +4,8 @@
 # Source this file from ~/.bashrc:   source /path/to/whereami.sh
 # Works on Bash 3.2 and newer. Never calls `exit`.
 
-WHEREAMI_VERSION="0.1.0"
+WHEREAMI_VERSION="0.2.0"
+WHEREAMI_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 # --- configuration -----------------------------------------------------------
 
@@ -177,6 +178,9 @@ Usage: whereami [COMMAND]
                        this machine (creates/removes ~/.config/whereami/disabled)
   init [--force] NAME [COLOR]
                        Write ~/.config/whereami/config for this machine
+  deploy HOST [--name NAME] [--color COLOR]
+                       Install whereami-shell on a remote machine over SSH
+                       (NAME defaults to HOST without any user@ prefix)
   --help, -h           Show this help
   --version            Show version
 
@@ -213,6 +217,39 @@ whereami_init() {
   WHEREAMI_NAME=$name WHEREAMI_COLOR=$color
   printf 'wrote %s\n' "$file"
   whereami_status
+}
+
+# Copy whereami.sh, bin/whereami and install.sh to HOST over ssh and run the
+# installer there. No git or network access is needed on the remote side.
+whereami_deploy() {
+  local host="" name="" color=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --name)  name=${2:-};  shift 2 ;;
+      --color) color=${2:-}; shift 2 ;;
+      -*) printf 'whereami deploy: unknown option %s\n' "$1" >&2; return 2 ;;
+      *) if [ -z "$host" ]; then host=$1; else
+           printf 'whereami deploy: unexpected argument %s\n' "$1" >&2; return 2; fi
+         shift ;;
+    esac
+  done
+  if [ -z "$host" ]; then
+    printf 'usage: whereami deploy HOST [--name NAME] [--color COLOR]\n' >&2; return 2
+  fi
+  [ -n "$name" ] || { name=${host##*@}; name=${name%%.*}; }
+  [ -n "$color" ] || color=$(whereami_default_color "$name")
+  if ! whereami_color_valid "$color"; then
+    printf 'whereami deploy: unknown color "%s"\n' "$color" >&2; return 2
+  fi
+  for f in whereami.sh bin/whereami install.sh; do
+    if [ ! -f "$WHEREAMI_DIR/$f" ]; then
+      printf 'whereami deploy: missing %s in %s\n' "$f" "$WHEREAMI_DIR" >&2; return 1
+    fi
+  done
+  printf 'deploying to %s as "%s" (%s)\n' "$host" "$name" "$color"
+  tar -C "$WHEREAMI_DIR" -cf - whereami.sh bin/whereami install.sh \
+    | ssh "$host" "d=\$(mktemp -d) && tar -xf - -C \"\$d\" \
+        && bash \"\$d/install.sh\" --name '$name' --color '$color'; s=\$?; rm -rf \"\$d\"; exit \$s"
 }
 
 whereami_on() {
@@ -252,6 +289,7 @@ whereami() {
     name)        whereami_load_config; printf '%s\n' "$WHEREAMI_NAME" ;;
     ps1)         whereami_ps1; printf '\n' ;;
     init)        shift; whereami_init "$@" ;;
+    deploy)      shift; whereami_deploy "$@" ;;
     on)          whereami_on ;;
     off)         whereami_off ;;
     toggle)      whereami_toggle ;;

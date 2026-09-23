@@ -22,9 +22,12 @@ while [ $# -gt 0 ]; do
 done
 
 mkdir -p "$PREFIX/bin"
-cp "$SRC/whereami.sh" "$PREFIX/whereami.sh"
-cp "$SRC/bin/whereami" "$PREFIX/bin/whereami"
-chmod +x "$PREFIX/bin/whereami"
+if [ "$SRC" != "$PREFIX" ]; then
+  cp "$SRC/whereami.sh" "$PREFIX/whereami.sh"
+  cp "$SRC/bin/whereami" "$PREFIX/bin/whereami"
+  cp "$SRC/install.sh" "$PREFIX/install.sh"
+fi
+chmod +x "$PREFIX/bin/whereami" "$PREFIX/install.sh"
 printf 'installed to %s\n' "$PREFIX"
 
 BASHRC="$HOME/.bashrc"
@@ -35,6 +38,18 @@ if grep -qF 'whereami-shell/whereami.sh' "$BASHRC"; then
 else
   printf '\n# whereami-shell: show which machine this shell is on\n%s\n' "$LINE" >> "$BASHRC"
   printf 'added source line to %s\n' "$BASHRC"
+fi
+
+# SSH logins and macOS Terminal start *login* shells, which read
+# ~/.bash_profile and skip ~/.bashrc unless .bash_profile sources it.
+PROFILE="$HOME/.bash_profile"
+if [ -f "$PROFILE" ] && ! grep -qE '\.bashrc' "$PROFILE"; then
+  if grep -qF 'whereami-shell/whereami.sh' "$PROFILE"; then
+    printf 'source line already present in %s\n' "$PROFILE"
+  else
+    printf '\n# whereami-shell: show which machine this shell is on\n%s\n' "$LINE" >> "$PROFILE"
+    printf 'added source line to %s (login shells)\n' "$PROFILE"
+  fi
 fi
 
 if [ -n "$NAME" ]; then

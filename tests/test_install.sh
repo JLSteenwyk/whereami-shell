@@ -30,3 +30,29 @@ test_installed_copy_works_from_bashrc() {
   out=$(bash -ic 'whereami name' 2>/dev/null)
   assert_eq box "$out"
 }
+
+test_install_also_hooks_bash_profile_that_skips_bashrc() {
+  printf 'export PATH=/x:$PATH\n' > "$HOME/.bash_profile"
+  "$WHEREAMI_ROOT/install.sh" >/dev/null
+  grep -q 'whereami-shell/whereami.sh' "$HOME/.bash_profile"
+  "$WHEREAMI_ROOT/install.sh" >/dev/null
+  assert_eq 1 "$(grep -c 'whereami-shell/whereami.sh' "$HOME/.bash_profile")"
+}
+
+test_install_leaves_bash_profile_alone_when_it_sources_bashrc() {
+  printf '[ -f ~/.bashrc ] && . ~/.bashrc\n' > "$HOME/.bash_profile"
+  "$WHEREAMI_ROOT/install.sh" >/dev/null
+  ! grep -q 'whereami-shell' "$HOME/.bash_profile"
+}
+
+test_install_copies_installer_so_deploy_works_from_prefix() {
+  "$WHEREAMI_ROOT/install.sh" >/dev/null
+  [ -x "$HOME/.local/share/whereami-shell/install.sh" ]
+}
+
+test_login_shell_shows_prompt_after_install() {
+  printf 'export PATH=/x:$PATH\n' > "$HOME/.bash_profile"
+  "$WHEREAMI_ROOT/install.sh" --name box --color red >/dev/null
+  out=$(bash -lic 'whereami name' 2>/dev/null)
+  assert_eq box "$out"
+}
