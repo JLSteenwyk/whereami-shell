@@ -100,3 +100,11 @@ computed once and cached in `WHEREAMI_SESSION` -> `PS1` is prefixed with
 sources `whereami.sh` in a controlled environment (temp `HOME`, cleared SSH
 variables, fake `ps` on `PATH` where needed) and asserts on function output and
 exit codes. `make test` runs them all.
+- Update: the status item is a single `terminal` SF Symbol tinted with the
+  machine color (gray while off). The menu shows name, host, color, prompt
+  state and the destinations of `ssh` client processes running on this Mac
+  (parsed from `ps -axo args=`; tokens must look like a host because `ps`
+  loses quoting). `WhereAmI --sessions` prints that list for debugging.
+- `whereami deploy HOST` installs on a remote by piping a tar of the three
+  files through `ssh` into a temp dir and running `install.sh` there. The
+  installer also hooks `~/.bash_profile` when it does not source `.bashrc`.

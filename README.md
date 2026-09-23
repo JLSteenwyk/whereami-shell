@@ -28,7 +28,7 @@ inside tmux.
 
 ## Install
 
-On each machine you use:
+Install on your main machine first:
 
 ```sh
 git clone https://github.com/JLSteenwyk/whereami-shell.git
@@ -41,6 +41,23 @@ cd whereami-shell
 `~/.config/whereami/config`. Open a new shell to see the prompt.
 
 Without `--name`, the short hostname is used and a color is derived from it.
+
+The installer adds its line to `~/.bashrc`, and also to `~/.bash_profile` when
+that file exists and does not source `.bashrc`, because SSH logins and macOS
+Terminal start login shells.
+
+### Remote machines
+
+The prompt on a server is drawn by that server's own Bash, so each machine
+needs its own copy. From a machine that already has whereami-shell:
+
+```sh
+whereami deploy threadripper --name threadripper --color magenta
+whereami deploy jacob@dgx-spark-1                  # name defaults to the host
+```
+
+`deploy` copies the three needed files over SSH and runs the installer on the
+remote. The remote needs Bash as its login shell; nothing else.
 
 Requirements: Bash 3.2 or newer (the macOS default works). No other
 dependencies.
@@ -59,6 +76,7 @@ config:  /home/jacob/.config/whereami/config
 
 $ whereami name           # just the name, handy in scripts
 $ whereami init NAME [COLOR]   # (re)write this machine's config
+$ whereami deploy HOST    # install on a remote machine over SSH
 $ whereami off            # hide the prompt segment in every shell on this machine
 $ whereami on             # show it again (whereami toggle flips it)
 $ whereami --help
@@ -76,10 +94,12 @@ answers from the remote side.
 
 ![menu bar item](docs/menubar.png)
 
-`WhereAmI.app` puts the machine's name in the menu bar in its configured color
-and lets you switch the prompt segment on or off with one click. It uses the
-same flag file as `whereami on`/`off`, so the menu bar and every terminal stay
-in sync in both directions.
+`WhereAmI.app` adds a small computer icon to the menu bar, tinted with this
+machine's color (gray while the prompt is off). Clicking it shows the machine
+name, host, prompt state, and any SSH sessions currently open from this Mac,
+plus a **Show in prompt** toggle. It uses the same flag file as
+`whereami on`/`off`, so the menu bar and every terminal stay in sync in both
+directions.
 
 ```sh
 make install-app   # builds with swiftc, copies to ~/Applications, launches

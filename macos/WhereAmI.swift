@@ -101,12 +101,74 @@ enum Palette {
     }
 }
 
+// MARK: - Outgoing SSH sessions from this Mac
+
+enum SSHSessions {
+    /// Hosts of `ssh` client processes currently running on this Mac.
+    static func active() -> [String] {
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/bin/ps")
+        task.arguments = ["-axo", "args="]
+        let pipe = Pipe()
+        task.standardOutput = pipe
+        task.standardError = FileHandle.nullDevice
+        guard (try? task.run()) != nil else { return [] }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        task.waitUntilExit()
+        guard let text = String(data: data, encoding: .utf8) else { return [] }
+
+        var hosts: [String] = []
+        for line in text.split(separator: "\n") {
+            let words = line.split(separator: " ").map(String.init)
+            guard let cmd = words.first, (cmd as NSString).lastPathComponent == "ssh" else { continue }
+            if let host = destination(of: Array(words.dropFirst())), !hosts.contains(host) {
+                hosts.append(host)
+            }
+        }
+        return hosts
+    }
+
+    /// First non-option argument, i.e. the [user@]host, skipping option values.
+    private static func destination(of args: [String]) -> String? {
+        let takesValue: Set<Character> = ["b", "c", "D", "E", "e", "F", "I", "i", "J", "L", "l",
+                                          "m", "O", "o", "p", "Q", "R", "S", "W", "w", "B"]
+        var i = 0
+        while i < args.count {
+            let a = args[i]
+            if a == "--" { return args.count > i + 1 ? args[i + 1] : nil }
+            if a.hasPrefix("-"), a.count >= 2 {
+                let flag = a[a.index(after: a.startIndex)]
+                if takesValue.contains(flag) && a.count == 2 { i += 2 } else { i += 1 }
+                continue
+            }
+            if a.hasPrefix("ssh://") { return String(a.dropFirst(6)) }
+            // `ps` output loses quoting, so an option value containing a space
+            // (e.g. -o "ProxyCommand=nc %h") leaks stray words. Accept only
+            // tokens that look like a host: [user@]name with a letter or a dot.
+            if looksLikeHost(a) { return a }
+            i += 1
+        }
+        return nil
+    }
+
+    private static func looksLikeHost(_ token: String) -> Bool {
+        let host = token.split(separator: "@").last.map(String.init) ?? token
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: ".-_:[]%"))
+        guard !host.isEmpty, host.unicodeScalars.allSatisfy({ allowed.contains($0) }) else { return false }
+        return host.contains(".") || host.contains(where: { $0.isLetter })
+    }
+}
+
 // MARK: - App
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem!
     private let menu = NSMenu()
-    private let headerItem = NSMenuItem()
+    private let nameItem = NSMenuItem()
+    private let hostItem = NSMenuItem()
+    private let promptItem = NSMenuItem()
+    private let sshHeaderItem = NSMenuItem()
+    private var sshItems: [NSMenuItem] = []
     private let toggleItem = NSMenuItem(title: "Show in prompt", action: #selector(togglePrompt), keyEquivalent: "")
     private let loginItem = NSMenuItem(title: "Start at login", action: #selector(toggleLogin), keyEquivalent: "")
     private var watcher: DispatchSourceFileSystemObject?
@@ -119,8 +181,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem.menu = menu
         menu.delegate = self
 
-        headerItem.isEnabled = false
-        menu.addItem(headerItem)
+        for item in [nameItem, hostItem, promptItem] { item.isEnabled = false; menu.addItem(item) }
+        menu.addItem(.separator())
+        sshHeaderItem.isEnabled = false
+        menu.addItem(sshHeaderItem)
         menu.addItem(.separator())
         toggleItem.target = self
         menu.addItem(toggleItem)
@@ -155,21 +219,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let enabled = isEnabled
         let color = Palette.nsColor(config.color) ?? Palette.nsColor(Config.defaultColor(for: config.name))!
 
-        let dot = enabled ? "●" : "○"
-        let title = NSMutableAttributedString(string: dot + " ", attributes: [
-            .foregroundColor: enabled ? color : NSColor.tertiaryLabelColor,
-            .font: NSFont.systemFont(ofSize: 11),
-        ])
-        title.append(NSAttributedString(string: config.name, attributes: [
-            .foregroundColor: enabled ? color : NSColor.secondaryLabelColor,
-            .font: NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .semibold),
-        ]))
-        statusItem.button?.attributedTitle = title
-        statusItem.button?.toolTip = "whereami-shell: \(config.name) (\(config.color)), prompt \(enabled ? "on" : "off")"
+        // Menu bar: one small icon, tinted with the machine color; gray when off.
+        let tint = enabled ? color : NSColor.tertiaryLabelColor
+        let base = NSImage(systemSymbolName: "terminal", accessibilityDescription: "whereami-shell")
+            ?? NSImage(systemSymbolName: "display", accessibilityDescription: nil)!
+        let configured = base.withSymbolConfiguration(
+            NSImage.SymbolConfiguration(pointSize: 15, weight: .semibold)
+                .applying(NSImage.SymbolConfiguration(paletteColors: [tint]))) ?? base
+        configured.isTemplate = false
+        statusItem.button?.image = configured
+        statusItem.button?.imagePosition = .imageOnly
+        statusItem.button?.toolTip = "\(config.name) · prompt \(enabled ? "on" : "off")"
 
-        headerItem.title = "\(config.name)  ·  \(Config.shortHostname())"
+        // Menu contents
+        nameItem.attributedTitle = NSAttributedString(string: config.name, attributes: [
+            .foregroundColor: color, .font: NSFont.boldSystemFont(ofSize: 14),
+        ])
+        hostItem.title = "Host: \(Config.shortHostname())   Color: \(config.color)"
+        promptItem.title = "Prompt: \(enabled ? "on" : "off")"
         toggleItem.state = enabled ? .on : .off
         loginItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
+
+        let hosts = SSHSessions.active()
+        sshHeaderItem.title = hosts.isEmpty ? "No SSH sessions from this Mac" : "SSH sessions from this Mac"
+        for item in sshItems { menu.removeItem(item) }
+        sshItems = hosts.map { host in
+            let item = NSMenuItem(title: "→ \(host)", action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            item.indentationLevel = 1
+            return item
+        }
+        var index = menu.index(of: sshHeaderItem) + 1
+        for item in sshItems { menu.insertItem(item, at: index); index += 1 }
     }
 
     func menuWillOpen(_ menu: NSMenu) { refresh() }
@@ -223,6 +304,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         source.resume()
         watcher = source
     }
+}
+
+// Debug aid: `WhereAmI --sessions` prints the detected SSH hosts and exits.
+if CommandLine.arguments.contains("--sessions") {
+    for host in SSHSessions.active() { print(host) }
+    exit(0)
 }
 
 let app = NSApplication.shared
