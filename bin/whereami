@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Standalone entry point: `whereami` from scripts or `ssh host whereami`.
+WHEREAMI_NO_SETUP=1
+. "$(cd "$(dirname "$0")/.." && pwd)/whereami.sh"
+whereami "$@"
