@@ -17,6 +17,16 @@ whereami_config_path() {
   fi
 }
 
+# Flag file whose presence hides the prompt segment on this machine.
+whereami_disabled_path() {
+  local cfg; cfg=$(whereami_config_path)
+  printf '%s/disabled\n' "${cfg%/*}"
+}
+
+# 0 when the prompt segment should be shown. Checked on every prompt so a
+# toggle from the menu bar app or another shell takes effect immediately.
+whereami_enabled() { [ ! -e "$(whereami_disabled_path)" ]; }
+
 whereami_hostname() {
   local h
   h=$(hostname -s 2>/dev/null) || h=$(hostname 2>/dev/null) || h=${HOSTNAME:-unknown}
@@ -124,11 +134,12 @@ whereami_color_valid() { whereami_color_code "$1" >/dev/null 2>&1; }
 # guards so Bash does not count the escapes toward the line width.
 whereami_ps1() {
   local marker color reset
+  whereami_enabled || return 0
   [ -n "${WHEREAMI_NAME:-}" ] || whereami_load_config
   whereami_detect_session
   if [ "$WHEREAMI_SESSION" = ssh ]; then marker="SSH   "; else marker="LOCAL "; fi
   if [ "${WHEREAMI_COLOR_ENABLED:-1}" = 0 ]; then
-    printf '%s %s' "$marker" "$WHEREAMI_NAME"
+    printf '%s %s ' "$marker" "$WHEREAMI_NAME"
     return 0
   fi
   color=$(whereami_color_code "${WHEREAMI_COLOR:-}") \
@@ -136,10 +147,10 @@ whereami_ps1() {
   reset=$(printf '\033[0m')
   if [ "$WHEREAMI_SESSION" = ssh ]; then
     # bold + reverse for the SSH marker so remote shells stand out
-    printf '\[%s\033[1;7m\] %s\[%s\] \[%s\033[1m\]%s\[%s\]' \
+    printf '\[%s\033[1;7m\] %s\[%s\] \[%s\033[1m\]%s\[%s\] ' \
       "$color" "$marker" "$reset" "$color" "$WHEREAMI_NAME" "$reset"
   else
-    printf '\[%s\]%s \[%s\033[1m\]%s\[%s\]' \
+    printf '\[%s\]%s \[%s\033[1m\]%s\[%s\] ' \
       "$color" "$marker" "$color" "$WHEREAMI_NAME" "$reset"
   fi
 }
@@ -150,7 +161,7 @@ whereami_setup() {
   whereami_detect_session
   [ "${WHEREAMI_PROMPT:-1}" = 0 ] && return 0
   case "${PS1:-}" in *whereami_ps1*) return 0 ;; esac
-  PS1='$(whereami_ps1) '"${PS1:-\\w \\$ }"
+  PS1='$(whereami_ps1)'"${PS1:-\\w \\$ }"
 }
 
 # --- command -----------------------------------------------------------------
@@ -162,6 +173,8 @@ Usage: whereami [COMMAND]
   (none)               Show the machine name, session type, host, tmux, color
   name                 Print only the machine name
   ps1                  Print the raw prompt segment (for custom PS1)
+  on | off | toggle    Show or hide the prompt segment in every shell on
+                       this machine (creates/removes ~/.config/whereami/disabled)
   init [--force] NAME [COLOR]
                        Write ~/.config/whereami/config for this machine
   --help, -h           Show this help
@@ -202,17 +215,34 @@ whereami_init() {
   whereami_status
 }
 
+whereami_on() {
+  rm -f "$(whereami_disabled_path)" || return 1
+  printf 'prompt: on\n'
+}
+
+whereami_off() {
+  local flag; flag=$(whereami_disabled_path)
+  mkdir -p "${flag%/*}" && : > "$flag" || return 1
+  printf 'prompt: off\n'
+}
+
+whereami_toggle() {
+  if whereami_enabled; then whereami_off; else whereami_on; fi
+}
+
 whereami_status() {
-  local tmux=no
+  local tmux=no prompt=on
   whereami_load_config
   whereami_detect_session
   whereami_in_tmux && tmux=yes
+  whereami_enabled || prompt=off
   printf 'name:    %s\n' "$WHEREAMI_NAME"
   printf 'session: %s\n' "$WHEREAMI_SESSION"
   printf 'host:    %s\n' "$(hostname 2>/dev/null || printf unknown)"
   printf 'user:    %s\n' "${USER:-$(id -un 2>/dev/null)}"
   printf 'tmux:    %s\n' "$tmux"
   printf 'color:   %s\n' "$WHEREAMI_COLOR"
+  printf 'prompt:  %s\n' "$prompt"
   printf 'config:  %s\n' "$(whereami_config_path)"
 }
 
@@ -222,6 +252,9 @@ whereami() {
     name)        whereami_load_config; printf '%s\n' "$WHEREAMI_NAME" ;;
     ps1)         whereami_ps1; printf '\n' ;;
     init)        shift; whereami_init "$@" ;;
+    on)          whereami_on ;;
+    off)         whereami_off ;;
+    toggle)      whereami_toggle ;;
     -h|--help|help) whereami_usage ;;
     --version|version) printf 'whereami-shell %s\n' "$WHEREAMI_VERSION" ;;
     *) printf 'whereami: unknown command "%s"\n\n' "$1" >&2; whereami_usage >&2; return 2 ;;

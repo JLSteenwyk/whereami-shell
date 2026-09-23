@@ -46,7 +46,7 @@ test_ps1_unknown_color_falls_back_to_derived_color() {
 test_ps1_plain_has_no_escapes_when_color_disabled() {
   WHEREAMI_NAME=macbook WHEREAMI_COLOR=green WHEREAMI_SESSION=local WHEREAMI_COLOR_ENABLED=0
   out=$(whereami_ps1)
-  assert_eq "LOCAL  macbook" "$out"
+  assert_eq "LOCAL  macbook " "$out"
 }
 
 test_setup_prefixes_PS1_by_default() {
